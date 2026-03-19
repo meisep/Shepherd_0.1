@@ -6,7 +6,7 @@ U-D-U-U pulse sequence with timeout triggering to capture final two U pulses
 import time
 from bnc765_driver import BNC765
 from tds6604_driver import TDS6604
-from utilities import save_waveform
+from utils.utilities import save_waveform
 
 
 def setup_pulse_channel(pulser, channel, voltage, offset, capture_width_ns, pulses,

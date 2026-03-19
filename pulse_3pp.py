@@ -5,7 +5,7 @@ U pulse, N pulse, D pulse sequence with polarity control
 import time
 from bnc765_driver import BNC765
 from tds6604_driver import TDS6604
-from utilities import *
+from utils.utilities import *
 
 
 def connect_instruments():
