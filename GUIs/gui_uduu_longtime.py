@@ -1,9 +1,9 @@
 import sys
 from pymeasure.display.windows import ManagedWindow
-from pymeasure.experiment import Procedure, Results
+from pymeasure.experiment import Procedure
 from pymeasure.experiment import FloatParameter, IntegerParameter, Parameter
 import logging
-from pulse_uduu_longtime import run_uduu_long
+from Archive.pulse_uduu_longtime import run_uduu_long
 from pymeasure.display.Qt import QtWidgets
 from pathlib import Path
 

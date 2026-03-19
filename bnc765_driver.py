@@ -97,7 +97,7 @@ class BNC765(SCPIMixin, Instrument):
         self.start()
 
     def shutdown(self):
-        """Safe shutdown - stop all channels"""
+        """Safe shutdown"""
         try:
             self.stop()
             for i in [1, 2, 3, 4]:
@@ -106,11 +106,12 @@ class BNC765(SCPIMixin, Instrument):
         except:
             pass
         finally:
-            if hasattr(self, 'adapter') and self.adapter:
-                try:
-                    self.adapter.close()
-                except:
-                    pass
+            try:
+                if hasattr(self, 'adapter') and self.adapter is not None:
+                    self.adapter.connection.close()
+                    self.adapter.connection = None  # Null out to prevent double-close
+            except:
+                pass
 
 
 class BNC765Channel:

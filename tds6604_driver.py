@@ -182,6 +182,19 @@ class TDS6604(SCPIMixin, Instrument):
         cast=int,
         get_process=lambda v: int(float(v))
     )
+    def shutdown(self):
+        """Safe shutdown"""
+        try:
+            self.stop()
+        except:
+            pass
+        finally:
+            try:
+                if hasattr(self, 'adapter') and self.adapter is not None:
+                    self.adapter.connection.close()
+                    self.adapter.connection = None  # Null out to prevent double-close
+            except:
+                pass
 
 
 #######################

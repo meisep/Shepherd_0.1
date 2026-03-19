@@ -172,12 +172,12 @@ def run_uduu(pulse_amplitude, pulse_width_ns, u_to_d_delay, d_to_u_delay, u_to_u
         if polarity == 'pp':
             # U positive, D negative
             u_offset = base_offset
-            d_offset = base_offset
+            d_offset = 0
             u_inverted = False
             d_inverted = True
         else:  # 'nn'
             # U negative, D positive
-            u_offset = base_offset
+            u_offset = 0
             d_offset = base_offset
             u_inverted = True
             d_inverted = False
@@ -260,7 +260,7 @@ def run_uduu(pulse_amplitude, pulse_width_ns, u_to_d_delay, d_to_u_delay, u_to_u
                 'capture_width_ns': capture_width_ns,
                 'record_length': record_length,
                 'trigger_delay_ns': trigger_delay_s * 1e9,
-                'd_to_u_delay_s':trigger_delay_s,
+                'd_to_u_delay_s': trigger_delay_s,
             }
 
             if save_data:

@@ -48,6 +48,7 @@ def setup_pulse_channel_3pp(pulser, channel, voltage, offset, capture_width_ns, 
     pulser.trigger_source = 'MANUAL'
     pulser.trigger_output_amplitude = 0.9
     pulser.trigger_output_polarity = 'POSITIVE'
+    pulser.trigger_output_delay = 0
     pulser.write(f'TRIGGER:OUTPUT:SOURCE OUT{channel}')
     ch.output_state = True
     pulser.start()
