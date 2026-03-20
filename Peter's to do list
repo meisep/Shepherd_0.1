@@ -1,5 +1,5 @@
-
-- transition drivers to piec
+- look into why the venv gets overwritten on the meas computer
+- transition 6604 to piec
 - transition experiment to piec formatting
 - GUI for fast retention
 - GUI for training?

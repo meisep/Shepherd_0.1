@@ -59,17 +59,26 @@ def plot_squint(df, save_path):
 
 
 def plot_fatigue(df, save_path):
-    """Fatigue: dP vs cycle_count"""
-    fig, ax = plt.subplots(1, 1, figsize=(2, 2), dpi=200)
+    """Fatigue: dP vs cycle_count with leakage on second y-axis"""
+    fig, ax1 = plt.subplots(1, 1, figsize=(2.3, 2), dpi=200)
 
-    sns.scatterplot(x=df['cycle_count'], y=df['dP_uC_cm2'], s=30, c=twocolors[0], label='dP')
-    sns.scatterplot(x=df['cycle_count'], y=df['leakage_current_uA'], s=10, c=twocolors[1], label='I (uA)', zorder=0)
+    # Primary axis: dP
+    sns.scatterplot(x=df['cycle_count'], y=df['dP_uC_cm2'],
+                    s=30, c=twocolors[0], ax=ax1)
+    ax1.set_xscale('log')
+    ax1.set_xlabel('Cycle Count')
+    ax1.set_ylabel('dP (µC/cm²)', color=twocolors[0])
+    ax1.tick_params(axis='y', labelcolor=twocolors[0])
 
-    ax.set_xscale('log')
-    ax.set_xlabel('Cycle Count')
-    ax.set_ylabel('dP')
-    ax.set_title('Fatigue')
-    ax.set_facecolor('white')
+    # Secondary axis: leakage current
+    ax2 = ax1.twinx()
+    sns.scatterplot(x=df['cycle_count'], y=df['leakage_current_uA'],
+                    s=10, c=twocolors[1], ax=ax2, zorder=0)
+    ax2.set_ylabel('I (µA)', color=twocolors[1])
+    ax2.tick_params(axis='y', labelcolor=twocolors[1])
+
+    ax1.set_title('Fatigue')
+    ax1.set_facecolor('white')
     fig.tight_layout()
     fig.savefig(save_path)
     plt.show()
