@@ -47,9 +47,9 @@ def save_waveform(data, filename=None, directory=None, format='csv', metadata=No
     filename = filename.replace('.', 'p')
     # Create directory structure: data/{directory}/
     if directory is not None:
-        dir_path = Path("../data") / directory
+        dir_path = Path("data") / directory
     else:
-        dir_path = Path("../data")
+        dir_path = Path("data")
     dir_path.mkdir(parents=True, exist_ok=True)
     if verbose:
         print(f"Using directory: {dir_path}")
