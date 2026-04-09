@@ -125,9 +125,13 @@ def run_3pp(u_amplitude, u_to_n_delay, nd_amplitude, n_to_d_delay,
             print(f"Connected to: {scope.id}")
             print(f"Polarity: {polarity}, Averages: {num_averages}")
 
-        n_absolute_delay = pulse_width_ns + u_to_n_delay
+        # Add a 100ns pre-pulse delay
+        PRE_PULSE_DELAY_NS = 100
+
+        n_absolute_delay = pulse_width_ns + u_to_n_delay + PRE_PULSE_DELAY_NS
         d_absolute_delay = n_absolute_delay + pulse_width_ns + n_to_d_delay
-        pulses_u = [{'width_ns': pulse_width_ns, 'delay_ns': 0}]
+
+        pulses_u = [{'width_ns': pulse_width_ns, 'delay_ns': PRE_PULSE_DELAY_NS}]  # U starts at 100ns
         pulses_nd = [
             {'width_ns': pulse_width_ns, 'delay_ns': n_absolute_delay},
             {'width_ns': pulse_width_ns, 'delay_ns': d_absolute_delay}
@@ -207,7 +211,8 @@ def run_3pp(u_amplitude, u_to_n_delay, nd_amplitude, n_to_d_delay,
             'pulse_width_ns': pulse_width_ns,
             'capture_width_ns': capture_width_ns,
             'record_length': record_length,
-            'num_averages': num_averages
+            'num_averages': num_averages,
+            'pre_pulse_delay_ns': PRE_PULSE_DELAY_NS,
         }
         # Merge extra metadata if provided
         if extra_metadata is not None:
