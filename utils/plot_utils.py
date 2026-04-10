@@ -263,7 +263,7 @@ def process_sample(sample_directory, cd_um, measurement_config=MEASUREMENT_CONFI
     return all_results
 
 
-def metaplot(files, normalize=False):
+def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
     # Determine flag from any file containing the keyword
     flag_map = {'shmoo': 'shmoo', 'squint': 'squint', 'ret': 'ret', 'fatigue': 'fatigue'}
     flag = next((v for k, v in flag_map.items() if k in files[0]), None)
@@ -306,7 +306,7 @@ def metaplot(files, normalize=False):
         ax.set_xscale('log')
 
     for n, df in enumerate(dfs):
-        label = df['sample'].iloc[0]
+        label = df['sample'].iloc[0] if not label_list else label_list[n]
         color = eightcolors[n]
         plot_kwargs = dict(ms=2.5, marker='o', c=color, label=label, ax=ax)
 
@@ -314,6 +314,12 @@ def metaplot(files, normalize=False):
             posdf = df[df['polarity'] == 'npp']
             y = posdf['dP_uC_cm2'] / (posdf['dP_uC_cm2'].iloc[-1] if normalize else 1)
             sns.lineplot(data=posdf, x='nd_amplitude', y=y, **plot_kwargs)
+
+            if doubleshmoo:
+                negdf = df[df['polarity'] == 'pnn']
+                y = negdf['dP_uC_cm2'] / (negdf['dP_uC_cm2'].iloc[-1] if normalize else 1)
+                plot_kwargs['label'] = None
+                sns.lineplot(data=negdf, x='nd_amplitude', y=y, **plot_kwargs)
 
         elif flag == 'squint':
             y = abs(df['dP_uC_cm2']) / (df['dP_uC_cm2'].abs().max() if normalize else 1)
@@ -335,3 +341,78 @@ def metaplot(files, normalize=False):
     print(f"Saved: {save_path}")
     plt.show()
     plt.close()
+
+
+def load_traces(data_list=None, directory=None, pattern='3pp_*.csv',
+                polarity_filter=None, sort_by_polarity=False):
+    """
+    Load voltage traces from files into a DataFrame with all metadata as columns
+
+    Args:
+        data_list: List of waveform dicts or file paths (overrides directory)
+        directory: Path to a specific measurement directory
+        pattern: Glob pattern for files in directory
+        polarity_filter: Filter by polarity ('npp', 'pnn', or None for all)
+        sort_by_polarity: If True, sort by polarity
+
+    Returns:
+        DataFrame with columns: time_ns, voltage_V, label, filename, + all metadata keys
+    """
+    # Load files from directory if no data_list provided
+    if data_list is None and directory is not None:
+        directory = Path(directory)
+        files = sorted(directory.glob(pattern))
+
+        if polarity_filter:
+            files = [f for f in files if polarity_filter in f.name]
+
+        data_list = [str(f) for f in files]
+
+        if not data_list:
+            print(f"No files found matching {pattern} in {directory}")
+            return None
+
+    all_dfs = []
+
+    for data in data_list:
+        if isinstance(data, (str, Path)):
+            d = load_data(str(data))  # [8]
+            time_ns = d['time_ns']
+            voltage = d['voltage_V']
+            metadata = d['metadata']
+            label = Path(data).stem
+            filename = str(data)
+            print(filename)
+        else:
+            time_ns = data['time'] * 1e9
+            voltage = data['voltage']
+            metadata = {}
+            label = ''
+            filename = ''
+
+        # Build per-file DataFrame
+        df = pd.DataFrame({
+            'time_ns': time_ns,
+            'voltage_V': voltage,
+            'label': label,
+            'filename': filename,
+        })
+
+        # Add all metadata as columns - same value repeated for every row
+        for key, val in metadata.items():
+            try:
+                df[key] = float(val)
+            except (ValueError, TypeError):
+                df[key] = val
+
+        all_dfs.append(df)
+
+    if not all_dfs:
+        return None
+
+    result = pd.concat(all_dfs, ignore_index=True)
+
+    if sort_by_polarity and 'polarity' in result.columns:
+        result = result.sort_values('polarity').reset_index(drop=True)
+
+    return result
