@@ -179,11 +179,16 @@ def run_3pp(u_amplitude, u_to_n_delay, nd_amplitude, n_to_d_delay,
             input("Press Enter to trigger 3PP...")
         else:
             time.sleep(0.2)
-
+            
         # Trigger pulser num_averages times for hardware averaging
         for i in range(num_averages):
             pulser.trigger()
-            time.sleep(1.5) # there is probably a smarter way to do this, but I will think about it later
+            time.sleep(0.1) # there is probably a smarter way to do this, but I will think about it later
+
+        while scope.acquisition_state:
+            # print('cleanup')
+            pulser.trigger()
+            time.sleep(0.1)
 
         pulser.ch1.output_state = False
         pulser.ch2.output_state = False
