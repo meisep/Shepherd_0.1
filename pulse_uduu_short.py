@@ -225,13 +225,14 @@ def run_uduu(pulse_amplitude, pulse_width_ns, u_to_d_delay, d_to_u_delay, u_to_u
 
         # ========== AVERAGING LOOP ==========
         for avg_num in range(num_averages):
-            if verbose and num_averages > 1:
-                print(f"\nAverage {avg_num + 1}/{num_averages}")
-
             # Trigger pulser
             pulser.trigger()
-            time.sleep(1.5)  # Allow scope to process before next average
+            time.sleep(0.1)
 
+        while scope.acquisition_state:
+            # print('cleanup')
+            pulser.trigger()
+            time.sleep(0.1)
 
         pulser.ch1.output_state = False
         pulser.ch2.output_state = False

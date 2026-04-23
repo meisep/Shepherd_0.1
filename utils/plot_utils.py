@@ -416,3 +416,119 @@ def load_traces(data_list=None, directory=None, pattern='3pp_*.csv',
         result = result.sort_values('polarity').reset_index(drop=True)
 
     return result
+
+
+def plot_peak_traces(directory, pattern='3pp_*.csv', polarity_filter='npp',
+                     sort_by_polarity=True, peak='n', offset=True,
+                     hue='nd_amplitude', palette='managua', offset_scale_factor=2,
+                     downsample=10, save_path=None):
+    directory = Path(directory)
+
+    # Load traces - UNCHANGED from original
+    df = load_traces(
+        directory=str(directory),
+        pattern=pattern,
+        polarity_filter=polarity_filter,
+        sort_by_polarity=sort_by_polarity
+    )
+
+    # Calculate peak windows from metadata
+    pulse_width_ns = df['pulse_width_ns'].iloc[0]
+    u_to_n_delay = df['u_to_n_delay'].iloc[0]
+    n_to_d_delay = df['n_to_d_delay'].iloc[0]
+    pre_pulse_delay_ns = df['pre_pulse_delay_ns'].iloc[0] if 'pre_pulse_delay_ns' in df.columns else 0
+
+    u_start = pre_pulse_delay_ns
+    n_start = u_start + pulse_width_ns + u_to_n_delay
+    d_start = n_start + pulse_width_ns + n_to_d_delay
+
+    peak_windows = {
+        'u': (u_start, u_start + pulse_width_ns + 0.8*u_to_n_delay),
+        'n': (n_start-0.2*u_to_n_delay, n_start + pulse_width_ns + 0.8*n_to_d_delay),
+        'd': (d_start-0.2*n_to_d_delay, d_start + pulse_width_ns + 0.8*n_to_d_delay),
+    }
+    start_ns, end_ns = peak_windows[peak]
+
+    # EVERYTHING BELOW IS UNCHANGED from original snippet
+    df = df.loc[(df.time_ns > start_ns) & (df.time_ns < end_ns)]
+
+    if offset:
+        amplitudes = sorted(df[hue].unique())
+        offset_scale = df['voltage_V'].std() * offset_scale_factor
+        offset_map = {amp: i * offset_scale for i, amp in enumerate(amplitudes)}
+        df['voltage_plot'] = df['voltage_V'] + df[hue].map(offset_map)
+    else:
+        df['voltage_plot'] = df['voltage_V']
+
+    fig, ax = plt.subplots(1, 1, figsize=(2, 2), dpi=200)
+    ax.set_facecolor('w')
+    m = sns.lineplot(data=df[::downsample], x='time_ns', y='voltage_plot',
+                     palette=palette, hue=hue)
+    ax.legend(fontsize=6, title='pulse V', title_fontsize=6)
+
+    if save_path is None:
+        save_path = directory / f'traces_{peak}_{polarity_filter}.png'
+    fig.savefig(save_path)
+    plt.show()
+    plt.close()
+
+    return df
+
+
+def plot_nd_traces(directory, pattern='3pp_*.csv', polarity_filter='npp',
+                   downsample=10, palette='managua', save_path=None):
+
+    directory = Path(directory)
+
+    df = load_traces(
+        directory=str(directory),
+        pattern=pattern,
+        polarity_filter=polarity_filter,
+    )
+
+    pulse_width_ns     = df['pulse_width_ns'].iloc[0]
+    u_to_n_delay       = df['u_to_n_delay'].iloc[0]
+    n_to_d_delay       = df['n_to_d_delay'].iloc[0]
+    pre_pulse_delay_ns = df['pre_pulse_delay_ns'].iloc[0] if 'pre_pulse_delay_ns' in df.columns else 0
+
+    u_start = pre_pulse_delay_ns
+    n_start = u_start + pulse_width_ns + u_to_n_delay
+    d_start = n_start + pulse_width_ns + n_to_d_delay
+
+    peak_windows = {
+        'u': (u_start,                        u_start + pulse_width_ns + 0.8*u_to_n_delay),
+        'n': (n_start - 0.2*n_to_d_delay,     n_start + pulse_width_ns + 0.8*n_to_d_delay),
+        'd': (d_start - 0.2*n_to_d_delay,     d_start + pulse_width_ns + 0.8*n_to_d_delay),
+    }
+
+    # Filter to highest voltage only
+    max_voltage = df['nd_amplitude'].max()
+    df = df[df['nd_amplitude'] == max_voltage].copy()
+
+    df_n = df.loc[(df.time_ns > peak_windows['n'][0]) & (df.time_ns < peak_windows['n'][1])].copy()
+    df_d = df.loc[(df.time_ns > peak_windows['d'][0]) & (df.time_ns < peak_windows['d'][1])].copy()
+
+    df_n['time_plot'] = df_n['time_ns'] - n_start
+    df_d['time_plot'] = df_d['time_ns'] - d_start
+
+    df_n['peak'] = 'N'
+    df_d['peak'] = 'D'
+
+    combined = pd.concat([df_n, df_d], ignore_index=True)
+
+    fig, ax = plt.subplots(1, 1, figsize=(2, 2), dpi=200)
+    ax.set_facecolor('w')
+    sns.lineplot(data=combined[::downsample], x='time_plot', y='voltage_V',
+                 hue='peak', palette=palette, ax=ax)
+    ax.legend(fontsize=6, title='peak', title_fontsize=6)
+    ax.set_xlabel('Time from rising edge (ns)')
+    ax.set_ylabel('Voltage (V)')
+    ax.set_title(f'N vs D | {polarity_filter} | {max_voltage}V')
+
+    if save_path is None:
+        save_path = directory / f'nd_traces_{polarity_filter}.png'
+    fig.savefig(save_path)
+    plt.show()
+    plt.close()
+
+    return combined

@@ -114,6 +114,8 @@ def run_3pp(u_amplitude, u_to_n_delay, nd_amplitude, n_to_d_delay,
     scope_created = False
     pulser_created = False
 
+    capture_width_ns = 6*pulse_width_ns
+
     try:
         # Connect to instruments if not provided
         # pulser = BNC765("TCPIP::169.254.209.156::INSTR")  # Kepler
