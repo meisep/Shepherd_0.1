@@ -74,6 +74,36 @@ def plot_squint(df, save_path=None, ax=None):
         plt.close()
 
 
+def plot_chirp(df, save_path=None, ax=None):
+    """Chirp: dP vs pulse_width_ns with tanh fit"""
+    standalone = ax is None
+    if standalone:
+        fig, ax = plt.subplots(1, 1, figsize=(2, 2), dpi=200)
+
+    sns.scatterplot(data=df, x='pulse_width_ns', y='dP_uC_cm2',
+                    s=30, palette=twocolors, hue='polarity', ax=ax)
+    try:
+        result = fit_tanh(df['pulse_width_ns'], abs(df['dP_uC_cm2']))
+        cent = result['center']
+        ax.text(0.3, 0.0 * np.max(result['fit_curve']), rf'PW50:{cent:.1f}ns')
+        half = int(len(df['pulse_width_ns']) / 2)
+        ax.plot(df['pulse_width_ns'][:half], result['fit_curve'][:half], 'k--', lw=0.5)
+    except Exception as e:
+        print(f"  Tanh fit failed: {e}")
+
+    ax.set_xlabel('PW (ns)')
+    ax.set_ylabel('dP')
+    ax.set_title('Chirp')
+    ax.set_facecolor('white')
+
+    if standalone:
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path)
+        plt.show()
+        plt.close()
+
+
 def plot_fatigue(df, save_path=None, ax=None):
     """Fatigue: dP vs cycle_count with leakage on second y-axis"""
     standalone = ax is None
