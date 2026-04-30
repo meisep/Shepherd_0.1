@@ -82,14 +82,14 @@ def plot_chirp(df, save_path=None, ax=None):
 
     sns.scatterplot(data=df, x='pulse_width_ns', y='dP_uC_cm2',
                     s=30, palette=twocolors, hue='polarity', ax=ax)
-    try:
-        result = fit_tanh(df['pulse_width_ns'], abs(df['dP_uC_cm2']))
-        cent = result['center']
-        ax.text(0.3, 0.0 * np.max(result['fit_curve']), rf'PW50:{cent:.1f}ns')
-        half = int(len(df['pulse_width_ns']) / 2)
-        ax.plot(df['pulse_width_ns'][:half], result['fit_curve'][:half], 'k--', lw=0.5)
-    except Exception as e:
-        print(f"  Tanh fit failed: {e}")
+    # try:
+    #     result = fit_tanh(df['pulse_width_ns'], abs(df['dP_uC_cm2']))
+    #     cent = result['center']
+    #     ax.text(0.3, 0.0 * np.max(result['fit_curve']), rf'PW50:{cent:.1f}ns')
+    #     half = int(len(df['pulse_width_ns']) / 2)
+    #     ax.plot(df['pulse_width_ns'][:half], result['fit_curve'][:half], 'k--', lw=0.5)
+    # except Exception as e:
+    #     print(f"  Tanh fit failed: {e}")
 
     ax.set_xlabel('PW (ns)')
     ax.set_ylabel('dP')
@@ -184,6 +184,7 @@ MEASUREMENT_CONFIG = {
     'squint': ('3pp_*.csv', plot_squint),
     'fatigue': ('3pp_*.csv', plot_fatigue),
     'ret': ('uduu_*.csv', plot_ret),
+    'chirp': ('3pp_*.csv', plot_chirp)
 }
 
 
@@ -295,7 +296,7 @@ def process_sample(sample_directory, cd_um, measurement_config=MEASUREMENT_CONFI
 
 def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
     # Determine flag from any file containing the keyword
-    flag_map = {'shmoo': 'shmoo', 'squint': 'squint', 'ret': 'ret', 'fatigue': 'fatigue'}
+    flag_map = {'shmoo': 'shmoo', 'squint': 'squint', 'ret': 'ret', 'fatigue': 'fatigue', 'chirp': 'chirp'}
     flag = next((v for k, v in flag_map.items() if k in files[0]), None)
     if flag is None:
         raise ValueError(f"Could not determine measurement type from: {files[0]}")
@@ -327,6 +328,7 @@ def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
         'shmoo': ('V', 'dP', 'shmoo'),
         'squint': ('offset V', 'dP', 'squint'),
         'ret': ('Time (s)', '2Pr', 'retention'),
+        'chirp': ('PW (ns)', 'dP', 'chirp'),
     }
     xlabel, ylabel, title = axis_config.get(flag, ('', '', flag))
     ax.set_xlabel(xlabel)
@@ -354,6 +356,11 @@ def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
         elif flag == 'squint':
             y = abs(df['dP_uC_cm2']) / (df['dP_uC_cm2'].abs().max() if normalize else 1)
             sns.lineplot(x=df['base_offset'], y=y, **plot_kwargs)
+
+        elif flag == 'chirp':
+            posdf = df[df['polarity'] == 'npp']
+            y = posdf['dP_uC_cm2'] / (posdf['dP_uC_cm2'].iloc[-1] if normalize else 1)
+            sns.lineplot(data=posdf, x='pulse_width_ns', y=y, **plot_kwargs)
 
         elif flag == 'ret':
             df_pp = df[df['polarity'] == 'pp'].reset_index(drop=True)
