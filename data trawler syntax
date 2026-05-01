@@ -1,0 +1,40 @@
+from utils.trawler import trawl, filter_records
+from utils.plot_utils import metaplot
+
+records = trawl('SNP418')
+shmoos = filter_records(records, subdirs_contain='1p5,7p5', meas_type='shmoo')
+
+#auto-labels from meas_name, or override with label_list
+# metaplot(records=shmoos,doubleshmoo=True)
+
+# with custom labels
+metaplot(records=shmoos,label_list=['100 ns', '1000 ns','200 ns', '200 ns', '50 ns','500 ns'],doubleshmoo=True)
+
+
+
+
+from utils.trawler import trawl, filter_records
+from utils.plot_utils import metaplot
+
+records = trawl('SNP418')
+chirps = filter_records(records, subdirs_contain='D1', meas_type='chirp')
+
+#auto-labels from meas_name, or override with label_list
+metaplot(records=chirps , label_by=('subdirs', 1), doubleshmoo=True, normalize=True)
+
+# with custom labels
+# metaplot(records=shmoos,label_list=['100 ns', '1000 ns','200 ns', '200 ns', '50 ns','500 ns'],doubleshmoo=True)
+
+
+
+from utils.trawler import trawl, filter_records
+from utils.plot_utils import metaplot
+
+records = trawl('SM286')
+shmoos = filter_records(records, device='C2', cd='cdn',  meas_type='shmoo')
+
+#auto-labels from meas_name, or override with label_list
+metaplot(records=shmoos,doubleshmoo=True)
+
+# with custom labels
+# metaplot(records=shmoos,label_list=['1 us', '500 ns','2 us', '3 us', '5 us'],doubleshmoo=True)
