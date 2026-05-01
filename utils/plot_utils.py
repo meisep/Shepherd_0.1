@@ -294,7 +294,31 @@ def process_sample(sample_directory, cd_um, measurement_config=MEASUREMENT_CONFI
     return all_results
 
 
-def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
+def metaplot(files=None, records=None, normalize=False, label_list=None,
+             doubleshmoo=False, label_by='meas_name'):
+    """
+    Overplot multiple analysis results on a single axis.
+
+    Supply either:
+      files   – list of paths to *_analysis_results.csv  (original behaviour)
+      records – list of dicts returned by trawl()/filter_records()
+
+    label_by : which record field to use for auto-labelling when records are
+               given and label_list is omitted. Options:
+                 'meas_name', 'cd', 'device', 'sample', …  (any record key)
+                 ('subdirs', 1)  – tuple of (key, index) for list fields
+    """
+    if records is not None:
+        files = [r['path'] for r in records]
+        if label_list is None:
+            if isinstance(label_by, tuple):
+                key, idx = label_by
+                label_list = [r[key][idx] for r in records]
+            else:
+                label_list = [r.get(label_by, r['meas_name']) for r in records]
+    if not files:
+        raise ValueError("Provide either files or records")
+
     # Determine flag from any file containing the keyword
     flag_map = {'shmoo': 'shmoo', 'squint': 'squint', 'ret': 'ret', 'fatigue': 'fatigue', 'chirp': 'chirp'}
     flag = next((v for k, v in flag_map.items() if k in files[0]), None)
@@ -312,16 +336,23 @@ def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
         fn = Path(fn)
         df = pd.read_csv(fn)
         parts = fn.parts
-        data_idx = parts.index('data')
+        data_idx = next((i for i, p in enumerate(parts) if p == 'data'), None)
 
-        if save_path is None:
-            save_path = Path(*parts[:data_idx + 2]) / f'combined_{flag}_{normflag}.png'
+        if data_idx is not None:
+            if save_path is None:
+                save_path = Path(*parts[:data_idx + 2]) / f'combined_{flag}_{normflag}.png'
+            df['sample']   = parts[data_idx + 1] if data_idx + 1 < len(parts) else ''
+            df['device']   = parts[data_idx + 2] if data_idx + 2 < len(parts) else ''
+            df['cd']       = parts[data_idx + 3] if data_idx + 3 < len(parts) else ''
+            df['meas_type']= parts[data_idx + 4] if data_idx + 4 < len(parts) else ''
+        else:
+            if save_path is None:
+                save_path = fn.parent.parent / f'combined_{flag}_{normflag}.png'
 
-        df['sample'] = parts[data_idx + 1]
-        df['device'] = parts[data_idx + 2]
-        df['cd'] = parts[data_idx + 3]
-        df['meas_type'] = parts[data_idx + 4]
         dfs.append(df)
+
+    if save_path is None:
+        save_path = Path(files[0]).parent / f'combined_{flag}_{normflag}.png'
 
     # Set axis labels/title once outside the loop
     axis_config = {
@@ -338,7 +369,8 @@ def metaplot(files, normalize=False, label_list=None, doubleshmoo=False):
         ax.set_xscale('log')
 
     for n, df in enumerate(dfs):
-        label = df['sample'].iloc[0] if not label_list else label_list[n]
+        label = (label_list[n] if label_list
+                 else df['sample'].iloc[0] if 'sample' in df.columns else str(n))
         color = eightcolors[n]
         plot_kwargs = dict(ms=2.5, marker='o', c=color, label=label, ax=ax)
 
