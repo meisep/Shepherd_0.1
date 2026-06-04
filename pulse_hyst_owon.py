@@ -2,7 +2,10 @@
 Hysteresis loop measurement using the OWON AG3062 AWG + TDS6604 oscilloscope.
 
 The OWON cannot be triggered via VISA, so it runs via its internal timer burst.
-Sequence: configure both instruments → arm scope → enable AWG output → capture.
+Only the sense channel (current through sense resistor) is recorded. The drive
+voltage is reconstructed in post-processing from the waveform metadata.
+
+Sequence: configure AWG → configure scope → arm scope → enable AWG → capture.
 """
 import time
 from owon_ag3062_driver import OWONAG3062
@@ -15,9 +18,11 @@ def setup_awg_hyst(awg, amplitude, period, ncycles, offset=0.0, channel=1,
     """
     Configure the OWON AWG for a triangle-wave burst.
 
-    The AWG fires a burst every repeat_rate seconds via its internal timer.
-    repeat_rate defaults to 2 * ncycles * period to leave a gap between shots.
-    The output is left OFF — caller enables it after arming the scope.
+    Uses RAMP at 50% symmetry (symmetric triangle). Fires every repeat_rate
+    seconds via the internal timer. Output is left OFF — caller enables it
+    after arming the scope.
+
+    repeat_rate defaults to 2 * ncycles * period so there is a gap between shots.
     """
     ch = awg.ch1 if channel == 1 else awg.ch2
 
@@ -28,7 +33,7 @@ def setup_awg_hyst(awg, amplitude, period, ncycles, offset=0.0, channel=1,
     ch.burst_state = False
 
     ch.waveform = 'RAMP'
-    ch.ramp_symmetry = 50.0          # 50% symmetry = symmetric triangle wave
+    ch.ramp_symmetry = 50.0          # 50% symmetry = symmetric triangle
     ch.frequency = 1.0 / period
     ch.amplitude = 2.0 * amplitude   # OWON takes Vpp; peak amplitude = Vpp/2
     ch.offset = offset
@@ -47,30 +52,17 @@ def setup_awg_hyst(awg, amplitude, period, ncycles, offset=0.0, channel=1,
               f"repeat every {repeat_rate*1e3:.1f} ms")
 
 
-def setup_scope_hyst(scope, amplitude, period, ncycles,
-                     drive_channel=1, sense_channel=2,
-                     vdiv_drive=None, vdiv_sense=0.05,
-                     record_length=10000, num_averages=1, verbose=False):
+def setup_scope_hyst(scope, period, ncycles, sense_channel=1,
+                     vdiv_sense=0.05, record_length=10000,
+                     num_averages=1, verbose=False):
     """
-    Configure the TDS6604 scope to capture ncycles of the triangle waveform.
+    Configure the TDS6604 to capture ncycles of the sense resistor signal.
 
-    drive_channel : scope channel watching the AWG output voltage
-    sense_channel : scope channel watching the sense resistor voltage
-    trigger_channel : which scope channel to trigger on (usually same as drive)
-    vdiv_drive : V/div for drive channel; defaults to amplitude/4 (fits ±amplitude in ±5 div)
-    vdiv_sense : V/div for sense channel
+    Triggers on the sense channel itself: falling edge at -20 mV, which
+    catches the current reversal mid-sweep. The drive voltage is not
+    connected to the scope — it is reconstructed from metadata in post-processing.
     """
-    if vdiv_drive is None:
-        vdiv_drive = amplitude / 4.0
-
     capture_width_s = ncycles * period
-
-    drive_ch = getattr(scope, f'ch{drive_channel}')
-    drive_ch.enabled = True
-    drive_ch.coupling = 'DC'
-    drive_ch.impedance = 'FIFTY'
-    drive_ch.scale = vdiv_drive
-    drive_ch.position = 0
 
     sense_ch = getattr(scope, f'ch{sense_channel}')
     sense_ch.enabled = True
@@ -79,14 +71,12 @@ def setup_scope_hyst(scope, amplitude, period, ncycles,
     sense_ch.scale = vdiv_sense
     sense_ch.position = 0
 
-    # Timebase: capture_width / 10 divisions, with a 10% pre-trigger margin
     scope.record_length = record_length
     scope.timebase = capture_width_s / 10
-    scope.horizontal_position = 0.1 * capture_width_s  # pre-trigger
+    scope.horizontal_position = 0.1 * capture_width_s  # 10% pre-trigger
 
-    # Trigger on the falling edge of the drive channel at -20 mV
     scope.setup_edge_trigger(
-        source=f'CH{drive_channel}',
+        source=f'CH{sense_channel}',
         level=-0.02,
         slope='FALL',
         mode='NORMAL'
@@ -101,50 +91,52 @@ def setup_scope_hyst(scope, amplitude, period, ncycles,
     scope.acquisition_stopafter = 'SEQUENCE'
 
     if verbose:
-        print(f"Scope: {capture_width_s*1e6:.1f} µs capture, "
+        print(f"Scope CH{sense_channel}: {capture_width_s*1e6:.1f} µs capture, "
               f"{record_length} pts, {num_averages}x avg, "
-              f"trigger: CH{drive_channel} falling edge at -20 mV")
+              f"trigger: falling edge at -20 mV")
 
 
 def run_hyst(amplitude, period, ncycles=1, offset=0.0,
              sense_resistance=1e3,
              awg_channel=1,
-             drive_channel=1, sense_channel=2,
-             vdiv_drive=None, vdiv_sense=0.05,
+             sense_channel=1,
+             vdiv_sense=0.05,
              record_length=10000, num_averages=1,
              repeat_rate=None,
-             save_directory=None, save_data=True, save_plot=False,
+             save_directory=None, save_data=True,
              auto_start=False, verbose=False,
              extra_metadata=None):
     """
-    Capture a hysteresis loop using the OWON AWG and TDS6604 oscilloscope.
+    Capture a hysteresis loop sense signal using the OWON AWG + TDS6604.
+
+    Only the sense channel (voltage across sense resistor) is recorded.
+    The drive voltage waveform is a symmetric triangle and can be reconstructed
+    from the metadata: amplitude_V, period_s, offset_V, ncycles, and the
+    time axis in the saved CSV.
 
     Parameters
     ----------
-    amplitude       : float — peak voltage of the triangle wave (V)
+    amplitude       : float — peak voltage of the triangle drive (V)
     period          : float — period of the triangle wave (s)
     ncycles         : int   — number of full cycles to capture
-    offset          : float — DC offset of the drive waveform (V)
-    sense_resistance: float — sense resistor value in ohms (for metadata)
+    offset          : float — DC offset of the drive (V)
+    sense_resistance: float — sense resistor value in ohms (written to metadata)
     awg_channel     : int   — OWON output channel (1 or 2)
-    drive_channel   : int   — scope channel measuring the drive voltage
     sense_channel   : int   — scope channel measuring sense resistor voltage
-    vdiv_drive      : float — scope V/div for drive channel (auto if None)
     vdiv_sense      : float — scope V/div for sense channel
     record_length   : int   — scope record length in samples
-    num_averages    : int   — number of waveforms to average
+    num_averages    : int   — number of waveforms to average on scope
     repeat_rate     : float — AWG burst repeat period (s); default 2*ncycles*period
-    save_directory  : str   — directory to save CSV files
-    save_data       : bool  — whether to save data to CSV
-    save_plot       : bool  — whether to save a quick waveform plot
+    save_directory  : str   — directory to save CSV
+    save_data       : bool  — whether to save data
     auto_start      : bool  — if False, prompts before enabling AWG output
     verbose         : bool  — print progress
-    extra_metadata  : dict  — additional key/value pairs written to the CSV header
+    extra_metadata  : dict  — additional key/value pairs written to CSV header
 
     Returns
     -------
-    dict with keys 'drive' and 'sense', each a waveform dict with
-    'time' (s), 'voltage' (V), and 'metadata'.
+    waveform dict with keys 'time' (s array) and 'voltage' (V array),
+    matching the sense channel capture.
     """
     awg = OWONAG3062(OWONAG3062.VISA_ADDRESS)
     scope = TDS6604('GPIB0::2::INSTR')
@@ -154,7 +146,7 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
         print(f"Connected scope: {scope.id}")
 
     try:
-        # 1. Configure AWG (output stays OFF)
+        # 1. Configure AWG (output stays OFF until scope is armed)
         setup_awg_hyst(
             awg, amplitude=amplitude, period=period, ncycles=ncycles,
             offset=offset, channel=awg_channel, repeat_rate=repeat_rate,
@@ -163,21 +155,21 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
 
         # 2. Configure scope
         setup_scope_hyst(
-            scope, amplitude=amplitude, period=period, ncycles=ncycles,
-            drive_channel=drive_channel, sense_channel=sense_channel,
-            vdiv_drive=vdiv_drive, vdiv_sense=vdiv_sense,
+            scope, period=period, ncycles=ncycles,
+            sense_channel=sense_channel,
+            vdiv_sense=vdiv_sense,
             record_length=record_length, num_averages=num_averages,
             verbose=verbose
         )
 
-        # 3. Arm the scope — it now waits for the trigger
+        # 3. Arm the scope — waits for falling edge on sense channel
         scope.arm()
         time.sleep(0.2)
 
         if not auto_start:
             input("Scope armed. Press Enter to enable AWG output...")
 
-        # 4. Enable AWG: burst_state on first, then output — timer fires immediately
+        # 4. Enable AWG — internal timer fires the first burst immediately
         ch = awg.ch1 if awg_channel == 1 else awg.ch2
         ch.burst_state = True
         ch.output_state = True
@@ -185,22 +177,17 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
         if verbose:
             print("AWG running — waiting for scope to trigger...")
 
-        # 5. Wait for the scope to capture (one full burst + margin)
-        if repeat_rate is None:
-            repeat_rate_s = 2 * ncycles * period
-        else:
-            repeat_rate_s = repeat_rate
-
+        # 5. Wait for capture
+        repeat_rate_s = repeat_rate if repeat_rate is not None else 2 * ncycles * period
         timeout = repeat_rate_s + ncycles * period + 2.0
 
         if not scope.wait_for_trigger(timeout=timeout):
             raise TimeoutError(
                 f"Scope did not trigger within {timeout:.1f} s. "
-                "Check AWG output and trigger level."
+                "Check connections and sense channel trigger level."
             )
 
-        # 6. Read waveforms
-        drive_data = getattr(scope, f'ch{drive_channel}').get_waveform()
+        # 6. Read sense channel only
         sense_data = getattr(scope, f'ch{sense_channel}').get_waveform()
 
         # 7. Turn AWG off
@@ -208,10 +195,9 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
         ch.output_state = False
 
         if verbose:
-            n_pts = len(drive_data['voltage'])
-            print(f"Captured {n_pts} points per channel.")
+            print(f"Captured {len(sense_data['voltage'])} points.")
 
-        # 8. Build metadata
+        # 8. Metadata — enough to reconstruct the triangle drive in post-processing
         metadata = {
             'amplitude_V': amplitude,
             'period_s': period,
@@ -219,10 +205,10 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
             'offset_V': offset,
             'sense_resistance_ohm': sense_resistance,
             'awg_channel': awg_channel,
-            'drive_scope_channel': drive_channel,
             'sense_scope_channel': sense_channel,
             'record_length': record_length,
             'num_averages': num_averages,
+            'drive_waveform': 'triangle',  # RAMP 50% symmetry
         }
         if extra_metadata:
             metadata.update(extra_metadata)
@@ -231,28 +217,18 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
         if save_data and save_directory is not None:
             amp_str = f"{amplitude:.2f}V".replace('.', 'p')
             per_str = f"{period*1e6:.1f}us".replace('.', 'p')
-            base = f"hyst_{amp_str}_{per_str}"
-
-            save_waveform(
-                drive_data,
-                filename=f"{base}_drive",
-                directory=save_directory,
-                format='csv',
-                metadata={**metadata, 'channel': 'drive'},
-                overwrite=False,
-                verbose=verbose
-            )
+            filename = f"hyst_{amp_str}_{per_str}"
             save_waveform(
                 sense_data,
-                filename=f"{base}_sense",
+                filename=filename,
                 directory=save_directory,
                 format='csv',
-                metadata={**metadata, 'channel': 'sense'},
+                metadata=metadata,
                 overwrite=False,
                 verbose=verbose
             )
 
-        return {'drive': drive_data, 'sense': sense_data}
+        return sense_data
 
     finally:
         try:
