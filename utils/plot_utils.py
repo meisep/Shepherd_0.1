@@ -7,6 +7,13 @@ from pathlib import Path
 import seaborn as sns
 from utils.proc_utils import *
 
+_MM_PER_IN = 25.4
+
+
+def figsize_mm(w_mm, h_mm):
+    return (w_mm / _MM_PER_IN, h_mm / _MM_PER_IN)
+
+
 twocolors = ['#0000a2', '#bc272d']
 fourcolors = ['#0000a2', '#bc272d', '#50ad9f', '#e9c716']
 eightcolors = ['#003a7d','#008dff','#ff73b6','#c701ff','#4ecb8d','#ff9d3a','#f9e858','#d83034']

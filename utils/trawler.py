@@ -189,6 +189,132 @@ def load_and_average(
     return agg
 
 
+def load_shmoos_from_paths(dirs, polarity='both'):
+    """
+    Load shmoo data from a list of absolute directory paths.
+
+    Searches each directory for subdirectories whose name starts with 'shmoo',
+    loads 3pp_analysis_results.csv from each, and returns a DataFrame averaged
+    across all sources grouped by (pulse_width_ns, nd_amplitude).
+
+    polarity : 'npp'  – use only npp rows (dP already positive)
+               'pnn'  – use only pnn rows, sign-flipped to positive
+               'both' – average npp and sign-flipped pnn together (default)
+
+    Returns DataFrame with columns:
+        pulse_width_ns, nd_amplitude, dP_mean, dP_std, n_devices
+    All dP values are positive (unsigned switching amplitude).
+    """
+    if polarity not in ('npp', 'pnn', 'both'):
+        raise ValueError("polarity must be 'npp', 'pnn', or 'both'")
+
+    all_dfs = []
+    for d in dirs:
+        d = Path(d)
+        if not d.exists():
+            print(f"Warning: {d} does not exist, skipping")
+            continue
+        shmoo_dirs = sorted([s for s in d.iterdir()
+                             if s.is_dir() and s.name.lower().startswith('shmoo')])
+        if not shmoo_dirs:
+            print(f"No shmoo subdirectories found in {d}")
+            continue
+        for sd in shmoo_dirs:
+            csv = sd / '3pp_analysis_results.csv'
+            if not csv.exists():
+                print(f"  No 3pp_analysis_results.csv in {sd.name}, skipping")
+                continue
+            df = pd.read_csv(csv)
+            df['_source'] = str(sd)
+            all_dfs.append(df)
+            print(f"  Loaded {len(df)} rows from {sd.name}")
+
+    if not all_dfs:
+        return None
+
+    combined = pd.concat(all_dfs, ignore_index=True)
+
+    if polarity == 'npp':
+        combined = combined[combined['polarity'] == 'npp'].copy()
+        combined['dP_work'] = combined['dP_uC_cm2']
+    elif polarity == 'pnn':
+        combined = combined[combined['polarity'] == 'pnn'].copy()
+        combined['dP_work'] = -combined['dP_uC_cm2']
+    else:  # 'both'
+        combined['dP_work'] = combined['dP_uC_cm2'].copy()
+        pnn_mask = combined['polarity'] == 'pnn'
+        combined.loc[pnn_mask, 'dP_work'] = -combined.loc[pnn_mask, 'dP_uC_cm2']
+
+    grouped = (combined
+               .groupby(['pulse_width_ns', 'nd_amplitude'])['dP_work']
+               .agg(dP_mean='mean', dP_std='std', n_devices='count')
+               .reset_index())
+    return grouped
+
+
+def load_chirps_from_paths(dirs, polarity='both'):
+    """
+    Load chirp data from a list of absolute directory paths.
+
+    Searches each directory for subdirectories whose name starts with 'chirp',
+    loads 3pp_analysis_results.csv from each, and returns a DataFrame averaged
+    across all sources grouped by (u_amplitude, pulse_width_ns).
+
+    polarity : 'npp'  – use only npp rows (dP already positive)
+               'pnn'  – use only pnn rows, sign-flipped to positive
+               'both' – average npp and sign-flipped pnn together (default)
+
+    Returns DataFrame with columns:
+        cd_um, pulse_width_ns, dP_mean, dP_std, n_devices
+    All dP values are positive (unsigned switching amplitude).
+    """
+    if polarity not in ('npp', 'pnn', 'both'):
+        raise ValueError("polarity must be 'npp', 'pnn', or 'both'")
+
+    all_dfs = []
+    for d in dirs:
+        d = Path(d)
+        if not d.exists():
+            print(f"Warning: {d} does not exist, skipping")
+            continue
+        chirp_dirs = sorted([s for s in d.iterdir()
+                             if s.is_dir() and s.name.lower().startswith('chirp')])
+        if not chirp_dirs:
+            print(f"No chirp subdirectories found in {d}")
+            continue
+        for cd in chirp_dirs:
+            csv = cd / '3pp_analysis_results.csv'
+            if not csv.exists():
+                print(f"  No 3pp_analysis_results.csv in {cd.name}, skipping")
+                continue
+            df = pd.read_csv(csv)
+            df['_source'] = str(cd)
+            all_dfs.append(df)
+            print(f"  Loaded {len(df)} rows from {cd.name}")
+
+    if not all_dfs:
+        return None
+
+    combined = pd.concat(all_dfs, ignore_index=True)
+
+    if polarity == 'npp':
+        combined = combined[combined['polarity'] == 'npp'].copy()
+        combined['dP_work'] = combined['dP_uC_cm2']
+    elif polarity == 'pnn':
+        combined = combined[combined['polarity'] == 'pnn'].copy()
+        combined['dP_work'] = -combined['dP_uC_cm2']
+    else:
+        combined['dP_work'] = combined['dP_uC_cm2'].copy()
+        pnn_mask = combined['polarity'] == 'pnn'
+        combined.loc[pnn_mask, 'dP_work'] = -combined.loc[pnn_mask, 'dP_uC_cm2']
+
+    grouped = (combined
+               .groupby(['cd_um', 'pulse_width_ns'])['dP_work']
+               .agg(dP_mean='mean', dP_std='std', n_devices='count')
+               .reset_index())
+    return grouped
+
+
 def get_averaged_data(
     sample: str,
     device=None,

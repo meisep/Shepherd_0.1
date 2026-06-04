@@ -115,7 +115,7 @@ def align_peaks_uduu(time_ns, voltage_V, metadata, truncate_factor=0.95):
         'd_voltage': voltage_V[d_edge_idx:d_end]
     }
 
-def calculate_polarization(aligned_data, metadata, resistance=50, cd_um=np.nan):
+def calculate_polarization(aligned_data, metadata, resistance=50, cd_um=np.nan, integration_window_ns=200):
     """
     Calculate P* (N), P^ (D), and dP (difference)
     Returns dictionary suitable for DataFrame construction
@@ -124,11 +124,17 @@ def calculate_polarization(aligned_data, metadata, resistance=50, cd_um=np.nan):
     common_time = aligned_data['n_time']
     d_interp = np.interp(common_time, aligned_data['d_time'], aligned_data['d_voltage'])
 
+    # Restrict to integration window
+    mask = common_time <= integration_window_ns
+    common_time = common_time[mask]
+    n_voltage_window = aligned_data['n_voltage'][mask]
+    d_interp = d_interp[mask]
+
     # Calculate individual charges
     time_s = common_time * 1e-9
 
     # N charge (P*)
-    current_n = aligned_data['n_voltage'] / resistance
+    current_n = n_voltage_window / resistance
     charge_n_C = np.trapezoid(current_n, time_s)
     if metadata.get('polarity', 'npp') == 'pnn' or metadata.get('polarity', 'npp') == 'nn':
         charge_n_C = -charge_n_C
@@ -140,7 +146,7 @@ def calculate_polarization(aligned_data, metadata, resistance=50, cd_um=np.nan):
         charge_d_C = -charge_d_C
 
     if 'n_voltage' in aligned_data and aligned_data['n_voltage'] is not None:
-        u_voltage_end = aligned_data['n_voltage'][-5:]
+        u_voltage_end = n_voltage_window[-5:]
         leakage_voltage = np.mean(u_voltage_end)
         leakage_current_A = leakage_voltage / resistance
         leakage_current_uA = leakage_current_A * 1e6
@@ -210,9 +216,9 @@ def calculate_polarization(aligned_data, metadata, resistance=50, cd_um=np.nan):
     # Store waveforms for plotting
     results['_plot_data'] = {
         'time': common_time,
-        'n_voltage': aligned_data['n_voltage'],
+        'n_voltage': n_voltage_window,
         'd_voltage': d_interp,
-        'difference': aligned_data['n_voltage'] - d_interp
+        'difference': n_voltage_window - d_interp
     }
 
     return results
@@ -258,25 +264,25 @@ def plot_analysis(results):
     plt.tight_layout()
     plt.show()
 
-def analyze_3pp_file(filepath, cd_um=np.nan, pulsetrain='3pp'):
+def analyze_3pp_file(filepath, cd_um=np.nan, pulsetrain='3pp', integration_window_ns=200):
     """Analyze a single 3PP file and return results dictionary"""
     data = load_data(filepath)
     aligned = align_peaks_3pp(data['time_ns'], data['voltage_V'], data['metadata'])
-    results = calculate_polarization(aligned, data['metadata'], cd_um=cd_um)
+    results = calculate_polarization(aligned, data['metadata'], cd_um=cd_um, integration_window_ns=integration_window_ns)
     results['filename'] = filepath
     results['pulsetrain'] = pulsetrain
     return results
 
-def analyze_uduu_file(filepath, cd_um=np.nan, pulsetrain='3pp'):
+def analyze_uduu_file(filepath, cd_um=np.nan, pulsetrain='3pp', integration_window_ns=200):
     """Analyze a single UDUU file and return results dictionary"""
     data = load_data(filepath)
     aligned = align_peaks_uduu(data['time_ns'], data['voltage_V'], data['metadata'])
-    results = calculate_polarization(aligned, data['metadata'], cd_um=cd_um)
+    results = calculate_polarization(aligned, data['metadata'], cd_um=cd_um, integration_window_ns=integration_window_ns)
     results['filename'] = filepath
     results['pulsetrain'] = pulsetrain
     return results
 
-def batch_analyze(directory, save_csv=True, plot_all=False, cd_um=np.nan, pattern='3pp_*.csv'):
+def batch_analyze(directory, save_csv=True, plot_all=False, cd_um=np.nan, pattern='3pp_*.csv', integration_window_ns=200):
     """
     Analyze all 3PP/UDUU files in directory
     Args:
@@ -286,6 +292,7 @@ def batch_analyze(directory, save_csv=True, plot_all=False, cd_um=np.nan, patter
         plot_all: If True, plot every file (default: False, can be slow)
         cd_um: Contact diameter in microns
         pulsetrain: '3pp' for 3-pulse or 'uduu' for 2-pulse
+        integration_window_ns: Integration window in nanoseconds (default: 200)
     Returns:
         DataFrame with all results
     """
@@ -308,9 +315,9 @@ def batch_analyze(directory, save_csv=True, plot_all=False, cd_um=np.nan, patter
 
         try:
             if pattern == '3pp_*.csv':
-                results = analyze_3pp_file(filepath, cd_um=cd_um)
+                results = analyze_3pp_file(filepath, cd_um=cd_um, integration_window_ns=integration_window_ns)
             elif pattern == 'uduu_*.csv':
-                results = analyze_uduu_file(filepath, cd_um=cd_um)
+                results = analyze_uduu_file(filepath, cd_um=cd_um, integration_window_ns=integration_window_ns)
 
             # Remove plot data for DataFrame
             results_for_df = {k: v for k, v in results.items() if not k.startswith('_')}
