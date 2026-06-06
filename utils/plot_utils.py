@@ -185,13 +185,59 @@ def plot_ret(df, save_path=None, ax=None):
         plt.close()
 
 
-# Map measurement type to (pattern, plot_function)
+def plot_hyst(df, save_path=None, ax=None):
+    """
+    Hysteresis loop overplot: current (left axis) and polarization (right axis)
+    vs drive voltage. One curve per source file, all overplotted.
+
+    df : DataFrame from batch_analyze_hyst() with columns
+         source_file, V_drive, I_mA, P_uC_cm2
+    """
+    standalone = ax is None
+    if standalone:
+        fig, ax = plt.subplots(1, 1, figsize=figsize_mm(55, 45), dpi=200)
+    else:
+        fig = ax.get_figure()
+
+    ax2 = ax.twinx()
+    ax2.tick_params(labelsize=plt.rcParams['ytick.labelsize'])
+    ax2.yaxis.label.set_size(plt.rcParams['axes.labelsize'])
+    for spine in ax2.spines.values():
+        spine.set_linewidth(plt.rcParams['axes.linewidth'])
+
+    files = df['source_file'].unique()
+    for i, fname in enumerate(files):
+        sub  = df[df['source_file'] == fname]
+        color = eightcolors[i % len(eightcolors)]
+        ax.plot(sub['V_drive'],  sub['I_mA'],     color=color, lw=0.6, alpha=0.85)
+        ax2.plot(sub['V_drive'], sub['P_uC_cm2'], color=color, lw=0.9, ls='--', alpha=0.85)
+
+    ax.set_xlabel('V drive (V)')
+    ax.set_ylabel('I (mA)',           color=twocolors[0])
+    ax2.set_ylabel('P (µC cm⁻²)',     color=twocolors[1])
+    ax.tick_params(axis='y',  labelcolor=twocolors[0])
+    ax2.tick_params(axis='y', labelcolor=twocolors[1])
+    ax.set_title('Hysteresis')
+    ax.set_facecolor('white')
+
+    if standalone:
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path)
+        plt.show()
+        plt.close()
+
+
+# Map measurement type to (file pattern, plot function)
+# 'hyst' is processed by batch_analyze_hyst (not batch_analyze) and is
+# excluded from the summary subplot grid — see process_sample below.
 MEASUREMENT_CONFIG = {
-    'shmoo': ('3pp_*.csv', plot_shmoo),
-    'squint': ('3pp_*.csv', plot_squint),
-    'fatigue': ('3pp_*.csv', plot_fatigue),
-    'ret': ('uduu_*.csv', plot_ret),
-    'chirp': ('3pp_*.csv', plot_chirp)
+    'shmoo':  ('3pp_*.csv',  plot_shmoo),
+    'squint': ('3pp_*.csv',  plot_squint),
+    'fatigue':('3pp_*.csv',  plot_fatigue),
+    'ret':    ('uduu_*.csv', plot_ret),
+    'chirp':  ('3pp_*.csv',  plot_chirp),
+    'hyst':   ('hyst_*.csv', plot_hyst),
 }
 
 
@@ -233,12 +279,19 @@ def process_sample(sample_directory, cd_um, measurement_config=MEASUREMENT_CONFI
             print(f"{'=' * 60}")
 
             try:
-                df = batch_analyze(
-                    directory=str(subdir),
-                    save_csv=True,
-                    cd_um=cd_um,
-                    pattern=pattern,
-                )
+                if pattern == 'hyst_*.csv':
+                    df = batch_analyze_hyst(
+                        directory=str(subdir),
+                        save_csv=True,
+                        cd_um=cd_um,
+                    )
+                else:
+                    df = batch_analyze(
+                        directory=str(subdir),
+                        save_csv=True,
+                        cd_um=cd_um,
+                        pattern=pattern,
+                    )
 
                 if df is None or df.empty:
                     print(f"  No data found in {subdir.name}, skipping...")

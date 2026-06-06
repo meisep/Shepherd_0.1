@@ -540,3 +540,135 @@ def fit_power_law(x_data, y_data):
         'params': params,
         'uncertainties': perr
     }
+
+
+# ============================================================
+# HYSTERESIS ANALYSIS
+# ============================================================
+
+def reconstruct_triangle_drive(time_s, meta):
+    """
+    Reconstruct the OWON triangle drive voltage on the scope's time grid.
+
+    The scope triggers (t=0) when the sense signal crosses -20 mV falling,
+    which corresponds to the drive voltage at its peak (phase = 0.5 of the
+    triangle). The waveform is a symmetric triangle: rises from -A to +A over
+    half a period, falls back to -A over the second half.
+    """
+    amplitude = float(meta['amplitude_V'])
+    period_s  = float(meta['period_s'])
+    offset    = float(meta.get('offset_V', 0.0))
+
+    phase = (0.5 + time_s / period_s) % 1.0
+    tri   = 1.0 - 2.0 * np.abs(2.0 * phase - 1.0)   # normalized to [-1, 1]
+    return amplitude * tri + offset
+
+
+def analyze_hyst_file(filepath, cd_um=np.nan):
+    """
+    Process one hysteresis raw CSV.
+
+    Returns a dict with arrays:
+      time_s, V_drive, V_sense, I_A, Q_C, P_uC_cm2
+    and scalars:
+      amplitude_V, period_s, sense_resistance_ohm, cd_um, area_cm2, filename
+    """
+    data    = load_data(filepath)
+    time_ns = data['time_ns']
+    V_sense = data['voltage_V']
+    meta    = data['metadata']
+
+    time_s = time_ns * 1e-9
+    R      = float(meta.get('sense_resistance_ohm', 1000.0))
+
+    V_drive = reconstruct_triangle_drive(time_s, meta)
+    I_A     = V_sense / R
+
+    # Cumulative charge via trapezoidal integration from the start of the record
+    Q_C      = np.zeros(len(I_A))
+    Q_C[1:] = np.cumsum(0.5 * (I_A[1:] + I_A[:-1]) * np.diff(time_s))
+
+    # Area for polarization conversion
+    area_cm2 = np.nan
+    if not np.isnan(cd_um):
+        area_cm2 = np.pi * (cd_um / 2 * 1e-4) ** 2
+    elif 'device_area_cm2' in meta:
+        try:
+            area_cm2 = float(meta['device_area_cm2'])
+        except (ValueError, TypeError):
+            pass
+
+    if not np.isnan(area_cm2):
+        P_uC_cm2 = Q_C / area_cm2 * 1e6
+    else:
+        P_uC_cm2 = np.full_like(Q_C, np.nan)
+
+    return {
+        'time_s':              time_s,
+        'V_drive':             V_drive,
+        'V_sense':             V_sense,
+        'I_A':                 I_A,
+        'Q_C':                 Q_C,
+        'P_uC_cm2':            P_uC_cm2,
+        'cd_um':               cd_um,
+        'area_cm2':            area_cm2,
+        'amplitude_V':         float(meta.get('amplitude_V', np.nan)),
+        'period_s':            float(meta.get('period_s', np.nan)),
+        'sense_resistance_ohm': R,
+        'filename':            str(filepath),
+        'metadata':            meta,
+    }
+
+
+def batch_analyze_hyst(directory, save_csv=True, cd_um=np.nan):
+    """
+    Process all hyst_*.csv files in directory.
+
+    Saves:
+      hyst_current_loops.csv      — V_drive, I_A, I_mA per file
+      hyst_polarization_loops.csv — V_drive, Q_nC, P_uC_cm2 per file
+
+    Returns a combined DataFrame with columns:
+      source_file, V_drive, I_A, I_mA, Q_C, Q_nC, P_uC_cm2
+    Suitable for plot_hyst().
+    """
+    directory = Path(directory)
+    files     = sorted(directory.glob('hyst_*.csv'))
+
+    if not files:
+        print(f"No hyst_*.csv files found in {directory}")
+        return None
+
+    rows = []
+    for f in files:
+        print(f"  [{f.name}]")
+        try:
+            r = analyze_hyst_file(f, cd_um=cd_um)
+        except Exception as e:
+            print(f"    Error: {e}")
+            continue
+
+        n = len(r['time_s'])
+        rows.append(pd.DataFrame({
+            'source_file': [f.name] * n,
+            'V_drive':     r['V_drive'],
+            'I_A':         r['I_A'],
+            'I_mA':        r['I_A'] * 1e3,
+            'Q_C':         r['Q_C'],
+            'Q_nC':        r['Q_C'] * 1e9,
+            'P_uC_cm2':    r['P_uC_cm2'],
+        }))
+
+    if not rows:
+        return None
+
+    df = pd.concat(rows, ignore_index=True)
+
+    if save_csv:
+        (df[['source_file', 'V_drive', 'I_A', 'I_mA']]
+            .to_csv(directory / 'hyst_current_loops.csv', index=False))
+        (df[['source_file', 'V_drive', 'Q_nC', 'P_uC_cm2']]
+            .to_csv(directory / 'hyst_polarization_loops.csv', index=False))
+        print(f"  Saved hyst_current_loops.csv and hyst_polarization_loops.csv")
+
+    return df

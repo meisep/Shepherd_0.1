@@ -181,6 +181,8 @@ def run_hyst(amplitude, period, ncycles=1, offset=0.0,
         repeat_rate_s = repeat_rate if repeat_rate is not None else 2 * ncycles * period
         timeout = repeat_rate_s + ncycles * period + 2.0
 
+        time.sleep(repeat_rate_s*num_averages) #need to wait for the awg to complete
+
         if not scope.wait_for_trigger(timeout=timeout):
             raise TimeoutError(
                 f"Scope did not trigger within {timeout:.1f} s. "
