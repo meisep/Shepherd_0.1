@@ -546,49 +546,111 @@ def fit_power_law(x_data, y_data):
 # HYSTERESIS ANALYSIS
 # ============================================================
 
-def reconstruct_triangle_drive(time_s, meta):
+def find_trigger_dip_ns(time_ns, V_sense, baseline_window=200, n_sigma=5):
     """
-    Reconstruct the OWON triangle drive voltage on the scope's time grid.
+    Locate the first large downward peak in the sense signal.
 
-    The scope triggers (t=0) when the sense signal crosses -20 mV falling,
-    which corresponds to the drive voltage at its peak (phase = 0.5 of the
-    triangle). The waveform is a symmetric triangle: rises from -A to +A over
-    half a period, falls back to -A over the second half.
+    The scope captures a pre-trigger dip at the start of the period; this dip
+    is the timing reference from which the triangle window is measured.
+
+    Uses a threshold: first sample > n_sigma below the pre-record baseline.
+    Falls back to the global minimum in the first 30% of the record if no
+    threshold crossing is found (e.g. low-noise data).
     """
-    amplitude = float(meta['amplitude_V'])
-    period_s  = float(meta['period_s'])
-    offset    = float(meta.get('offset_V', 0.0))
+    n_base = min(baseline_window, len(V_sense) // 5)
+    base   = np.median(V_sense[:n_base])
+    noise  = np.std(V_sense[:n_base])
+    noise  = max(noise, 1e-9)   # guard against flat baseline
 
-    phase = (0.5 + time_s / period_s) % 1.0
-    tri   = 1.0 - 2.0 * np.abs(2.0 * phase - 1.0)   # normalized to [-1, 1]
-    return amplitude * tri + offset
+    below = np.where(V_sense - base < -n_sigma * noise)[0]
+    if len(below):
+        return float(time_ns[below[0]])
+
+    n30 = max(int(0.3 * len(V_sense)), 1)
+    return float(time_ns[np.argmin(V_sense[:n30])])
+
+
+def reconstruct_triangle_drive(time_ns, meta, t_trigger_ns):
+    """
+    Reconstruct the drive voltage for the triangle window [T/4, 3T/4] only.
+
+    Waveform structure referenced to the trigger-dip time:
+      [0,   T/4 ): trigger dip region — not analyzed
+      [T/4, 3T/4]: triangle sweep    — analysis window
+      (3T/4,  T ): dead region       — not analyzed
+
+    Within the [T/4, 3T/4] window the drive goes:
+      0 → +A  (first quarter of window)
+      +A → -A (middle half of window)
+      -A →  0 (last quarter of window)
+
+    Returns
+    -------
+    V_drive   : array same length as time_ns, NaN outside the window
+    in_window : boolean mask selecting the analysis samples
+    """
+    amplitude  = float(meta['amplitude_V'])
+    offset     = float(meta.get('offset_V', 0.0))
+    period_ns  = float(meta['period_s']) * 1e9
+
+    t_win_start = t_trigger_ns + period_ns / 4
+    t_win_end   = t_trigger_ns + 3 * period_ns / 4
+
+    in_window = (time_ns >= t_win_start) & (time_ns <= t_win_end)
+    t_win     = time_ns[in_window]
+
+    # Normalized position within window: φ ∈ [0, 1]
+    phi = (t_win - t_win_start) / (t_win_end - t_win_start)
+
+    tri        = np.empty_like(phi)
+    m1         = phi < 0.25
+    m2         = (phi >= 0.25) & (phi < 0.75)
+    m3         = phi >= 0.75
+    tri[m1]    =  phi[m1] / 0.25                          # 0  → +1
+    tri[m2]    =  1.0 - 2.0 * (phi[m2] - 0.25) / 0.5    # +1 → -1
+    tri[m3]    = -1.0 + (phi[m3] - 0.75) / 0.25          # -1 →  0
+
+    V_drive              = np.full(len(time_ns), np.nan)
+    V_drive[in_window]   = amplitude * tri + offset
+    return V_drive, in_window
 
 
 def analyze_hyst_file(filepath, cd_um=np.nan):
     """
     Process one hysteresis raw CSV.
 
-    Returns a dict with arrays:
-      time_s, V_drive, V_sense, I_A, Q_C, P_uC_cm2
-    and scalars:
-      amplitude_V, period_s, sense_resistance_ohm, cd_um, area_cm2, filename
+    1. Finds the first downward dip in the sense signal as the timing reference.
+    2. Extracts the triangle window [T/4, 3T/4] from that reference.
+    3. Reconstructs V_drive in the window and integrates I → Q.
+
+    Returns a dict with windowed arrays:
+      time_ns, time_s, V_drive, V_sense, I_A, Q_C, P_uC_cm2
+    and scalars for metadata.
     """
     data    = load_data(filepath)
     time_ns = data['time_ns']
     V_sense = data['voltage_V']
     meta    = data['metadata']
 
-    time_s = time_ns * 1e-9
-    R      = float(meta.get('sense_resistance_ohm', 1000.0))
+    # 1. Align to the first downward dip
+    t_trigger_ns = find_trigger_dip_ns(time_ns, V_sense)
 
-    V_drive = reconstruct_triangle_drive(time_s, meta)
-    I_A     = V_sense / R
+    # 2. Reconstruct drive and window mask
+    V_drive_full, in_window = reconstruct_triangle_drive(time_ns, meta, t_trigger_ns)
 
-    # Cumulative charge via trapezoidal integration from the start of the record
-    Q_C      = np.zeros(len(I_A))
-    Q_C[1:] = np.cumsum(0.5 * (I_A[1:] + I_A[:-1]) * np.diff(time_s))
+    # 3. Slice everything to the analysis window
+    time_ns_w = time_ns[in_window]
+    time_s_w  = time_ns_w * 1e-9
+    V_sense_w = V_sense[in_window]
+    V_drive_w = V_drive_full[in_window]
 
-    # Area for polarization conversion
+    # 4. Current and charge (Q restarted from zero at the window start)
+    R    = float(meta.get('sense_resistance_ohm', 1000.0))
+    I_A  = V_sense_w / R
+    Q_C  = np.zeros(len(I_A))
+    Q_C[1:] = np.cumsum(0.5 * (I_A[1:] + I_A[:-1]) * np.diff(time_s_w))
+
+    # 5. Area → polarization
     area_cm2 = np.nan
     if not np.isnan(cd_um):
         area_cm2 = np.pi * (cd_um / 2 * 1e-4) ** 2
@@ -598,15 +660,13 @@ def analyze_hyst_file(filepath, cd_um=np.nan):
         except (ValueError, TypeError):
             pass
 
-    if not np.isnan(area_cm2):
-        P_uC_cm2 = Q_C / area_cm2 * 1e6
-    else:
-        P_uC_cm2 = np.full_like(Q_C, np.nan)
+    P_uC_cm2 = Q_C / area_cm2 * 1e6 if not np.isnan(area_cm2) else np.full_like(Q_C, np.nan)
 
     return {
-        'time_s':              time_s,
-        'V_drive':             V_drive,
-        'V_sense':             V_sense,
+        'time_ns':             time_ns_w,
+        'time_s':              time_s_w,
+        'V_drive':             V_drive_w,
+        'V_sense':             V_sense_w,
         'I_A':                 I_A,
         'Q_C':                 Q_C,
         'P_uC_cm2':            P_uC_cm2,
@@ -615,6 +675,7 @@ def analyze_hyst_file(filepath, cd_um=np.nan):
         'amplitude_V':         float(meta.get('amplitude_V', np.nan)),
         'period_s':            float(meta.get('period_s', np.nan)),
         'sense_resistance_ohm': R,
+        't_trigger_ns':        t_trigger_ns,
         'filename':            str(filepath),
         'metadata':            meta,
     }

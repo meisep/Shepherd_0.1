@@ -214,7 +214,7 @@ def plot_hyst(df, save_path=None, ax=None):
 
     ax.set_xlabel('V drive (V)')
     ax.set_ylabel('I (mA)',           color=twocolors[0])
-    ax2.set_ylabel('P (µC cm⁻²)',     color=twocolors[1])
+    ax2.set_ylabel('P ($\mu$C cm$^{-2}$)',     color=twocolors[1])
     ax.tick_params(axis='y',  labelcolor=twocolors[0])
     ax2.tick_params(axis='y', labelcolor=twocolors[1])
     ax.set_title('Hysteresis')
